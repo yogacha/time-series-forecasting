@@ -2,6 +2,8 @@ import numpy as np
 import pandas as pd
 import pywt
 import requests
+from keras.layers import Dense, Input, Dropout
+from keras.models import Model
 
 # to rates
 def to_rate(df):
@@ -51,7 +53,7 @@ def split_data(dataframe, nweeks, target_len):
     M = np.array([ M[:, :, i] for i in range(array.shape[1])])
     return M[:, :, :nweeks], M[:, :, nweeks:]
 
-def train_test_split(dataframe, nweeks, target_len, test_size):
+def train_test_split(dataframe, nweeks, target_len, test_size, transfunc=None):
     '''Returns
     -------
     trainX, trainy, testX, testy
@@ -152,3 +154,34 @@ def wavelet_tansform(raw):
     if np.isnan(trans_raw).any():
         return raw
     return trans_raw
+
+def autoencoder(raw,test,encoding_dim):
+    inp = Input(shape=(None,52))
+    # encoder layers
+    encoded = Dense(300, activation='relu')(inp)
+    encoded = Dense(200, activation='relu')(encoded)
+    encoded = Dense(100, activation='relu')(encoded)
+    encoder_output = Dense(encoding_dim)(encoded)
+
+    # decoder layers
+    decoded = Dense(100, activation='relu')(encoder_output)
+    decoded = Dense(200, activation='relu')(decoded)
+    decoded = Dense(300, activation='relu')(decoded)
+    decoded = Dense(500, activation='linear')(decoded)
+
+    # construct the autoencoder model
+    autoencoder = Model(input=inp, output=decoded)
+
+    # construct the encoder model for plotting
+    encoder = Model(input=inp, output=encoder_output)
+
+    # compile autoencoder
+    autoencoder.compile(optimizer='adam', loss='mse')
+
+    # training
+    autoencoder.fit(raw, raw,
+                    verbose=0,
+                    epochs=1000,
+                    batch_size=128,)
+    trx,tex = encoder.predict(raw), encoder.predict(test)
+    return trx,tex 
