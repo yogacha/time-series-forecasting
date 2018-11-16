@@ -5,10 +5,16 @@ import requests
 
 # to rates
 def to_rate(df):
-    pass
-    # start_days = df.values[::5, :]
-    # end_days = df.values[4::5, :]
-    # rates = (end_days - start_days) / start_days
+    assert df.index.weekday[0] == 0 \
+           and not df.shape[0] % 5 \
+           and not np.any(df.isna().values)
+    dates = set(df.index.weekday)
+    assert (5 not in dates) and (6 not in dates)
+    start_days = df.values[::5, :]
+    end_days = df.values[4::5, :]
+    assert start_days.shape == end_days.shape
+    rates = (end_days - start_days) / start_days
+    return pd.DataFrame(rates, index=df.index[4::5], columns=df.columns)
 
 # filling  
 def linspace_fill(array, fill_last=True):
@@ -27,6 +33,12 @@ def linspace_fill(array, fill_last=True):
     if filling and fill_last:
         arr[ind_before_na:] = arr[ind_before_na]
     return arr
+
+def apply_fill(df):
+    df = df.copy()
+    for col in df:
+        df[col] = linspace_fill(df[col].values)
+    return df
 
 # spliting
 def split_data(dataframe, nweeks, target_len):
@@ -58,7 +70,7 @@ def merge(df1, df2):
     Index and columns are preserved.
     df1 have higher priority'''
     df = pd.DataFrame( index=df1.index.union(df2.index), 
-                       columns=df1.columns.union(df.columns) )
+                       columns=df1.columns.union(df2.columns) )
     d2 = df.copy()
     df.loc[df1.index, df1.columns] = df1
     d2.loc[df2.index, df2.columns] = df2
@@ -77,9 +89,8 @@ def min_max(df, min_min=True):
     return df
 
 # web crawler ...
-def get_data(coid_name, start='2018/11/5', end='2018/11/9', error_string='µL¸ê®Æ',
+def source1(coid_name, start='2018/11/5', end='2018/11/9', error_string='µL¸ê®Æ',
             url_format='http://esunbankfintest.moneydj.com/W4/bcd/BCDNavList.djbcd?a=%s&B=%s&C=%s'):
-    
     url = url_format%(coid_name, start, end)
     text = requests.get(url).text
     
@@ -89,18 +100,35 @@ def get_data(coid_name, start='2018/11/5', end='2018/11/9', error_string='µL¸�
         dates, values = text.split(' ')
         return dict( zip(dates.split(','), values.split(',')) )
 
-def get_datas_frame(coid_names, **kwargs):
+def get_datas_frame(coid_names, source=source1, **kwargs):
     '''
     `coid names` : iterable,  list of coid names
     `start`, `end` : str,  "2018/11/8"
     `error_string` : str, default "µL¸ê®Æ"
     `url_format`...
     '''
-    df = pd.DataFrame( { coid: get_data(coid, **kwargs) for coid in coid_names } )
+    df = pd.DataFrame( { coid: source(coid, **kwargs) for coid in coid_names } )
     df.index = pd.DatetimeIndex(df.index)
     df = df.astype(float)
     print('number of missing values:', df.isna().values.sum())
     return df
+
+# TEJ datas
+def TEJ_to_dataframe(path, from_monday=True, drop_weekends=True, to_weekly=True):
+    df = pd.read_csv(path, index_col=1)
+    df.index = pd.DatetimeIndex(df.index)
+    full_time_stamp = pd.DatetimeIndex(start=df.index.min(), end=df.index.max(), freq='D')
+    gb = df.groupby('coid').fld003
+    res = pd.DataFrame( { name : gb.get_group(name) for name in gb.groups}, full_time_stamp)
+    if from_monday:
+        res = res.iloc[ np.argmax(df.index.weekday == 0): , : ]
+    if drop_weekends:
+        res = res[res.index.weekday < 5]
+    if from_monday and to_weekly:
+        drop_n = res.shape[0]%5
+        if drop_n:
+            res = res.iloc[ :-drop_n, : ]
+    return res
 
 # wavelet transform
 def transform(df, path='', save=True):
