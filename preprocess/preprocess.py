@@ -3,6 +3,10 @@ import pandas as pd
 import pywt
 import requests
 
+def festack(*arg):
+    '''Given 3darray have same first two shape and stack on third'''
+    return np.array([ np.hstack(z) for z in zip(*arg) ])
+
 # to rates
 def to_rate(df):
     assert df.index.weekday[0] == 0 \
@@ -19,6 +23,8 @@ def to_rate(df):
 # filling  
 def linspace_fill(array, fill_last=True):
     arr = array.copy()
+    if type(arr) == pd.Series:
+        arr = arr.values
     # index of first value not nan
     j = np.argmin(np.isnan(arr))
     arr[:j] = arr[j]
@@ -33,12 +39,6 @@ def linspace_fill(array, fill_last=True):
     if filling and fill_last:
         arr[ind_before_na:] = arr[ind_before_na]
     return arr
-
-def apply_fill(df):
-    df = df.copy()
-    for col in df:
-        df[col] = linspace_fill(df[col].values)
-    return df
 
 # spliting
 def split_data(dataframe, nweeks, target_len):
@@ -79,9 +79,9 @@ def merge(df1, df2):
     return df
 
 # scaling
-def min_max(df, min_min=True):
+def min_max(df, minus_min=True):
     '''scaling raw data'''
-    if min_min:
+    if minus_min:
         column_min = df.min(axis=0)
         df = df - column_min
     column_max = df.max(axis=0)
@@ -131,19 +131,17 @@ def TEJ_to_dataframe(path, from_monday=True, drop_weekends=True, to_weekly=True)
     return res
 
 # wavelet transform
-def transform(df, path='', save=True):
-    org_mean = df.mean(axis=0).values.reshape(1, -1)
+def shift_mean(wavelet):
+    def transform(arr):
+        if type(arr) == pd.Series:
+            arr = arr.values
+        org_mean = arr.mean()
+        arr = wavelet(arr)
+        denoised_mean = arr.mean()
+        return arr - denoised_mean + org_mean
+    return transform
 
-    for colname in df:
-        df[colname] = wavelet_tansform(df[colname].values)
-
-    denoised_mean = df.mean(axis=0).values.reshape(1, -1)
-    shifted = df.values - denoised_mean + org_mean
-    df = pd.DataFrame(shifted, columns=df.columns)
-    if save:
-        df.to_csv(path, index=False)
-    return df
-
+@shift_mean
 def wavelet_tansform(raw):
     (ca, cd) = pywt.dwt(raw, "haar")                
     cat = pywt.threshold(ca, np.std(ca), mode="soft")                
@@ -151,4 +149,4 @@ def wavelet_tansform(raw):
     trans_raw = pywt.idwt(cat, cdt, "haar")
     if np.isnan(trans_raw).any():
         return raw
-    return trans_raw
+    return trans_raw[:-1]
